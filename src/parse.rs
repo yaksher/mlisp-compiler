@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     io::{self, Write},
 };
 
@@ -347,7 +347,7 @@ impl Expr<String> {
     }
 }
 
-pub fn enumerate_idents<T>(ast: Ast<String>) -> Ast<usize>
+pub fn enumerate_idents<T>(ast: Ast<String>) -> Ast<T>
 where
     T: Copy + TryFrom<usize>,
     <T as TryFrom<usize>>::Error: std::fmt::Debug,
@@ -389,27 +389,29 @@ pub trait Serialize {
     fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()>;
 }
 
-impl Serialize for usize {
-    fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
-        out.write_all(&self.to_le_bytes())
-    }
+macro_rules! impl_serialize_int {
+    ($($t:ty),*) => {
+        $(
+            impl Serialize for $t {
+                fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
+                    out.write_all(&self.to_le_bytes())
+                }
+            }
+        )*
+    };
 }
 
-impl Serialize for i64 {
-    fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
-        out.write_all(&self.to_le_bytes())
-    }
-}
+impl_serialize_int! {u8, u16, u32, u64, usize, i8, i16, i32, i64, isize}
 
-impl Serialize for u16 {
+impl<U: Serialize> Serialize for Vec<U> {
     fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
-        out.write_all(&self.to_le_bytes())
-    }
-}
-
-impl Serialize for u8 {
-    fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
-        out.write_all(&[*self])
+        let len = self.len();
+        let len: u16 = len.try_into().expect("too many elements");
+        len.serialize(out)?;
+        for item in self {
+            item.serialize(out)?;
+        }
+        Ok(())
     }
 }
 
@@ -484,55 +486,25 @@ impl<U: Serialize> Serialize for Expr<U> {
                 els.serialize(out)
             }
             Expr::Call(fun, args) => {
-                let len = args.len();
-                let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
                 4u8.serialize(out)?;
                 fun.serialize(out)?;
-                len.serialize(out)?;
-                for arg in args {
-                    arg.serialize(out)?;
-                }
-                Ok(())
+                args.serialize(out)
             }
             Expr::And(exprs) => {
-                let len = exprs.len();
-                let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
                 5u8.serialize(out)?;
-                len.serialize(out)?;
-                for expr in exprs {
-                    expr.serialize(out)?;
-                }
-                Ok(())
+                exprs.serialize(out)
             }
             Expr::Or(exprs) => {
-                let len = exprs.len();
-                let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
                 6u8.serialize(out)?;
-                len.serialize(out)?;
-                for expr in exprs {
-                    expr.serialize(out)?;
-                }
-                Ok(())
+                exprs.serialize(out)
             }
             Expr::Sequence(exprs) => {
-                let len = exprs.len();
-                let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
                 7u8.serialize(out)?;
-                len.serialize(out)?;
-                for expr in exprs {
-                    expr.serialize(out)?;
-                }
-                Ok(())
+                exprs.serialize(out)
             }
             Expr::List(exprs) => {
-                let len = exprs.len();
-                let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
                 8u8.serialize(out)?;
-                len.serialize(out)?;
-                for expr in exprs {
-                    expr.serialize(out)?;
-                }
-                Ok(())
+                exprs.serialize(out)
             }
             Expr::Literal(lit) => {
                 9u8.serialize(out)?;
@@ -565,16 +537,5 @@ impl<U: Serialize> Serialize for Decl<U> {
                 body.serialize(out)
             }
         }
-    }
-}
-
-impl<U: Serialize> Serialize for Ast<U> {
-    fn serialize<'a, T: Write>(&self, out: &'a mut T) -> io::Result<()> {
-        let len = self.len();
-        len.serialize(out)?;
-        for decl in self {
-            decl.serialize(out)?;
-        }
-        Ok(())
     }
 }
