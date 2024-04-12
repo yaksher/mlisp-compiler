@@ -36,6 +36,7 @@ pub enum Builtin {
     Int,
     Split,
     Trim,
+    Join,
     // stream operations
     Open,
     Read,
@@ -73,6 +74,7 @@ impl TryFrom<&str> for Builtin {
             "int" => Ok(Builtin::Int),
             "split" => Ok(Builtin::Split),
             "trim" => Ok(Builtin::Trim),
+            "join" => Ok(Builtin::Join),
 
             "open" => Ok(Builtin::Open),
             "read" => Ok(Builtin::Read),
