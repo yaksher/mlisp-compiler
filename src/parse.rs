@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{self, Write},
 };
 
@@ -35,6 +35,7 @@ pub enum Builtin {
     // string operations
     Int,
     Split,
+    Trim,
     // stream operations
     Open,
     Read,
@@ -71,6 +72,7 @@ impl TryFrom<&str> for Builtin {
 
             "int" => Ok(Builtin::Int),
             "split" => Ok(Builtin::Split),
+            "trim" => Ok(Builtin::Trim),
 
             "open" => Ok(Builtin::Open),
             "read" => Ok(Builtin::Read),
@@ -114,6 +116,7 @@ pub enum FnArgs<Ident> {
 pub enum Expr<Ident> {
     For(Ident, Box<Expr<Ident>>, Box<Expr<Ident>>),
     Bind(Ident, Box<Expr<Ident>>, Box<Expr<Ident>>),
+    Assign(Ident, Box<Expr<Ident>>),
     If(Box<Expr<Ident>>, Box<Expr<Ident>>, Box<Expr<Ident>>),
     Call(Box<Expr<Ident>>, Vec<Expr<Ident>>),
     And(Vec<Expr<Ident>>),
@@ -173,6 +176,10 @@ pub fn parse_expr(toks: &[TT]) -> Option<(Expr<String>, usize)> {
         }
         [TT::Delim(Del::Paren, toks), ..] => match toks.as_slice() {
             [] => (Expr::Literal(Literal::None), 1),
+            [TT::Ident(name), TT::Keyword(KW::Assign), ..] => {
+                let (val, skip_val) = parse_expr(toks.get(2..)?)?;
+                (Expr::Assign(name.clone(), Box::new(val)), 2 + skip_val)
+            }
             [TT::Keyword(KW::And), ..] => {
                 let exprs = parse_exprs(toks.get(1..)?)?;
                 (Expr::And(exprs), 1)
@@ -292,6 +299,10 @@ impl Expr<String> {
                     body.enumerate_idents(h).into(),
                 )
             }
+            Expr::Assign(name, val) => {
+                let id = ident_id(h, name);
+                Expr::Assign(id, val.enumerate_idents(h).into())
+            }
             Expr::If(cond, then, els) => Expr::If(
                 cond.enumerate_idents(h).into(),
                 then.enumerate_idents(h).into(),
@@ -339,12 +350,19 @@ where
     T: Copy + TryFrom<usize>,
     <T as TryFrom<usize>>::Error: std::fmt::Debug,
 {
-    let mut ids = HashMap::new();
-    ids.insert("_".to_string(), 0);
+    let mut glob_ids = HashMap::new();
+    ast.iter().for_each(|decl| {
+        let name = match decl {
+            Decl::Fn(name, ..) => name,
+            Decl::Bind(name, _) => name,
+        };
+        let _ = ident_id(&mut glob_ids, name.clone());
+    });
     ast.into_iter()
         .map(|decl| match decl {
             Decl::Fn(name, args, body) => {
-                let id = ident_id(&mut ids, name);
+                let id = ident_id(&mut glob_ids, name);
+                let mut ids = glob_ids.clone();
                 let args = match args {
                     FnArgs::One(name) => FnArgs::One(ident_id(&mut ids, name)),
                     FnArgs::List(names) => FnArgs::List(
@@ -357,7 +375,8 @@ where
                 Decl::Fn(id, args, body.enumerate_idents(&mut ids))
             }
             Decl::Bind(name, body) => {
-                let id = ident_id(&mut ids, name);
+                let id = ident_id(&mut glob_ids, name);
+                let mut ids = glob_ids.clone();
                 Decl::Bind(id, body.enumerate_idents(&mut ids))
             }
         })
@@ -451,8 +470,13 @@ impl<U: Serialize> Serialize for Expr<U> {
                 val.serialize(out)?;
                 body.serialize(out)
             }
-            Expr::If(cond, then, els) => {
+            Expr::Assign(id, val) => {
                 2u8.serialize(out)?;
+                id.serialize(out)?;
+                val.serialize(out)
+            }
+            Expr::If(cond, then, els) => {
+                3u8.serialize(out)?;
                 cond.serialize(out)?;
                 then.serialize(out)?;
                 els.serialize(out)
@@ -460,7 +484,7 @@ impl<U: Serialize> Serialize for Expr<U> {
             Expr::Call(fun, args) => {
                 let len = args.len();
                 let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
-                3u8.serialize(out)?;
+                4u8.serialize(out)?;
                 fun.serialize(out)?;
                 len.serialize(out)?;
                 for arg in args {
@@ -471,7 +495,7 @@ impl<U: Serialize> Serialize for Expr<U> {
             Expr::And(exprs) => {
                 let len = exprs.len();
                 let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
-                4u8.serialize(out)?;
+                5u8.serialize(out)?;
                 len.serialize(out)?;
                 for expr in exprs {
                     expr.serialize(out)?;
@@ -481,7 +505,7 @@ impl<U: Serialize> Serialize for Expr<U> {
             Expr::Or(exprs) => {
                 let len = exprs.len();
                 let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
-                5u8.serialize(out)?;
+                6u8.serialize(out)?;
                 len.serialize(out)?;
                 for expr in exprs {
                     expr.serialize(out)?;
@@ -491,7 +515,7 @@ impl<U: Serialize> Serialize for Expr<U> {
             Expr::Sequence(exprs) => {
                 let len = exprs.len();
                 let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
-                6u8.serialize(out)?;
+                7u8.serialize(out)?;
                 len.serialize(out)?;
                 for expr in exprs {
                     expr.serialize(out)?;
@@ -501,7 +525,7 @@ impl<U: Serialize> Serialize for Expr<U> {
             Expr::List(exprs) => {
                 let len = exprs.len();
                 let len: u8 = (len < 255).then(|| len as u8).expect("too many arguments");
-                7u8.serialize(out)?;
+                8u8.serialize(out)?;
                 len.serialize(out)?;
                 for expr in exprs {
                     expr.serialize(out)?;
@@ -509,15 +533,15 @@ impl<U: Serialize> Serialize for Expr<U> {
                 Ok(())
             }
             Expr::Literal(lit) => {
-                8u8.serialize(out)?;
+                9u8.serialize(out)?;
                 lit.serialize(out)
             }
             Expr::Builtin(b) => {
-                9u8.serialize(out)?;
+                10u8.serialize(out)?;
                 b.serialize(out)
             }
             Expr::Ident(id) => {
-                10u8.serialize(out)?;
+                11u8.serialize(out)?;
                 id.serialize(out)
             }
         }
