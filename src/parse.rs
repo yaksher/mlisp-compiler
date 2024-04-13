@@ -425,7 +425,9 @@ impl Serialize for Literal {
             }
             Literal::String(s) => {
                 2u8.serialize(out)?;
-                s.len().serialize(out)?;
+                u16::try_from(s.len())
+                    .expect("string literal too long")
+                    .serialize(out)?;
                 out.write_all(s.as_bytes())
             }
         }
