@@ -180,7 +180,10 @@ pub fn parse_expr(toks: &[TT]) -> Option<(Expr<String>, usize)> {
             [] => (Expr::Literal(Literal::None), 1),
             [TT::Ident(name), TT::Keyword(KW::Assign), ..] => {
                 let (val, skip_val) = parse_expr(toks.get(2..)?)?;
-                (Expr::Assign(name.clone(), Box::new(val)), 2 + skip_val)
+                if toks.len() != skip_val + 2 {
+                    return None;
+                }
+                (Expr::Assign(name.clone(), Box::new(val)), 1)
             }
             [TT::Keyword(KW::And), ..] => {
                 let exprs = parse_exprs(toks.get(1..)?)?;
