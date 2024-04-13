@@ -42,6 +42,8 @@ pub enum Builtin {
     Read,
     Write,
     Close,
+    // v0.1.1
+    Print,
 }
 
 impl TryFrom<&str> for Builtin {
@@ -80,6 +82,8 @@ impl TryFrom<&str> for Builtin {
             "read" => Ok(Builtin::Read),
             "write" => Ok(Builtin::Write),
             "close" => Ok(Builtin::Close),
+
+            "print" => Ok(Builtin::Print),
             _ => Err(()),
         }
     }
