@@ -360,6 +360,7 @@ where
     <T as TryFrom<usize>>::Error: std::fmt::Debug,
 {
     let mut glob_ids = HashMap::new();
+    glob_ids.insert("main".into(), 0.try_into().unwrap());
     ast.iter().for_each(|decl| {
         let name = match decl {
             Decl::Fn(name, ..) => name,
