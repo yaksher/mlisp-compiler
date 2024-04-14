@@ -359,20 +359,19 @@ where
     T: Copy + TryFrom<usize>,
     <T as TryFrom<usize>>::Error: std::fmt::Debug,
 {
-    let mut glob_ids = HashMap::new();
-    glob_ids.insert("main".into(), 0.try_into().unwrap());
+    let mut ids = HashMap::new();
+    ids.insert("main".into(), 0.try_into().unwrap());
     ast.iter().for_each(|decl| {
         let name = match decl {
             Decl::Fn(name, ..) => name,
             Decl::Bind(name, _) => name,
         };
-        let _ = ident_id(&mut glob_ids, name.clone());
+        let _ = ident_id(&mut ids, name.clone());
     });
     ast.into_iter()
         .map(|decl| match decl {
             Decl::Fn(name, args, body) => {
-                let id = ident_id(&mut glob_ids, name);
-                let mut ids = glob_ids.clone();
+                let id = ident_id(&mut ids, name);
                 let args = match args {
                     FnArgs::One(name) => FnArgs::One(ident_id(&mut ids, name)),
                     FnArgs::List(names) => FnArgs::List(
@@ -385,8 +384,7 @@ where
                 Decl::Fn(id, args, body.enumerate_idents(&mut ids))
             }
             Decl::Bind(name, body) => {
-                let id = ident_id(&mut glob_ids, name);
-                let mut ids = glob_ids.clone();
+                let id = ident_id(&mut ids, name);
                 Decl::Bind(id, body.enumerate_idents(&mut ids))
             }
         })
